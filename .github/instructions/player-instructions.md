@@ -1,5 +1,8 @@
 # YT Playlist Player — Handover Instructions
 
+> Note: `AGENTS.md` at repository root is the canonical, maintained agent handoff.
+> Use this file as supplementary historical context only.
+
 Zero-dependency YouTube playlist player. Pure HTML/CSS/ES-module JS, no build step, served from any static file server.
 
 ---
