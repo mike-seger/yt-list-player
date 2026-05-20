@@ -3,6 +3,7 @@ import {
   addCustomPlaylist, deleteCustomPlaylist, renameCustomPlaylist,
   downloadPlaylist, ingestFile,
 } from './playlist.js';
+import { confirmDialog } from './dialogs.js';
 
 // ── Persistence keys ──────────────────────────────────────────────────────────
 const SETTINGS_KEY = 'yt-pl-player.settings.v1';
@@ -88,7 +89,7 @@ const _cb = { onHideRestrictedChange: null, onPlaylistsChange: null, onOpen: nul
 let _getAllPlaylists = null;
 
 // ── DOM elements (set after DOMContentLoaded via initSettings) ────────────────
-let _overlayEl, _listEl, _failedCountEl, _scanBtn, _scanRestrictedBtn, _clearRestrictedBtn, _scanConsecFailInput;
+let _overlayEl, _listEl, _failedCountEl, _scanBtn, _scanRestrictedBtn, _clearRestrictedBtn, _scanConsecFailInput, _addEmptyBtn;
 
 export function initSettings({ onHideRestrictedChange, onPlaylistsChange, getAllPlaylists, onOpen, startScan, cancelScan, startScanRestricted, clearRestricted, getUnknownCount, onScanStatus }) {
   _cb.onHideRestrictedChange = onHideRestrictedChange;
@@ -109,6 +110,13 @@ export function initSettings({ onHideRestrictedChange, onPlaylistsChange, getAll
   _scanRestrictedBtn   = document.getElementById('settings-scan-restricted-btn');
   _clearRestrictedBtn  = document.getElementById('settings-clear-restricted-btn');
   _scanConsecFailInput = document.getElementById('setting-scan-consec-fail');
+  _addEmptyBtn         = document.getElementById('settings-add-empty');
+
+  _addEmptyBtn.addEventListener('click', () => {
+    const created = addCustomPlaylist({ title: 'New custom playlist', items: [] });
+    _cb.onPlaylistsChange?.();
+    _renderPlaylistSection(created.id);
+  });
   _scanConsecFailInput.value = _settings.scanConsecFailThreshold;
   _scanConsecFailInput.addEventListener('change', () => {
     const v = parseInt(_scanConsecFailInput.value, 10);
@@ -261,17 +269,22 @@ export function closeSettings() {
 }
 
 // ── Internal renderers ────────────────────────────────────────────────────────
-function _renderPlaylistSection() {
+function _renderPlaylistSection(focusCustomId = null) {
   if (!_listEl || !_getAllPlaylists) return;
   const hidden = getHiddenPlaylists();
   _listEl.innerHTML = '';
 
-  _getAllPlaylists().forEach(({ url, title, playableCount, restrictedCount, isCustom, id }) => {
+  const entries = [..._getAllPlaylists()].sort((a, b) =>
+    String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base', numeric: true })
+  );
+
+  entries.forEach(({ url, title, playableCount, restrictedCount, isCustom, id }) => {
     const isHidden = hidden.has(url);
     // Display name: user override takes priority over the fetched title
     const displayTitle = getPlaylistNameOverride(url) ?? title;
     const row = document.createElement('div');
-    row.className = 'settings-pl-row';
+    row.className = 'settings-pl-row' + (isCustom ? ' settings-pl-row-custom' : '');
+    if (isCustom) row.dataset.custom = 'true';
     const countStr = restrictedCount
       ? `${playableCount} tracks · <em>${restrictedCount} restricted</em>`
       : `${playableCount} tracks`;
@@ -280,7 +293,10 @@ function _renderPlaylistSection() {
       <div class="settings-pl-toggle">
         <input type="checkbox" ${isHidden ? '' : 'checked'} autocomplete="off">
         <span class="settings-pl-info">
-          <input class="settings-pl-rename" type="text" value="${_esc(displayTitle)}" autocomplete="off" spellcheck="false" aria-label="Rename playlist">
+          <span class="settings-pl-title-wrap">
+            ${isCustom ? '<span class="settings-pl-custom-icon" title="Custom playlist">&#10022;</span>' : ''}
+            <input class="settings-pl-rename" type="text" value="${_esc(displayTitle)}" autocomplete="off" spellcheck="false" aria-label="Rename playlist">
+          </span>
           <span class="settings-pl-meta">${countStr}</span>
         </span>
       </div>
@@ -306,9 +322,17 @@ function _renderPlaylistSection() {
     };
     renameInput.addEventListener('change', _saveRename);
     renameInput.addEventListener('blur',   _saveRename);
+    if (isCustom && id === focusCustomId) {
+      setTimeout(() => {
+        renameInput.focus();
+        renameInput.select();
+      }, 0);
+    }
 
     if (isCustom) {
-      row.querySelector('[title="Delete"]').addEventListener('click', () => {
+      row.querySelector('[title="Delete"]').addEventListener('click', async () => {
+        const ok = await confirmDialog(`Delete custom playlist "${renameInput.value.trim() || title}"?`);
+        if (!ok) return;
         deleteCustomPlaylist(id);
         _cb.onPlaylistsChange?.();
         _renderPlaylistSection();

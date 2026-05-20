@@ -7,6 +7,7 @@ import {
 } from './settings.js';
 import {
   getCustomPlaylists, getCustomPlaylistById,
+  addCustomPlaylist, appendTracksToCustomPlaylist,
   getPlaylistState, savePlaylistState,
   initCustomPlaylists,
   getRestrictedOverrides, saveRestrictedOverride, clearRestrictedOverrides,
@@ -14,6 +15,7 @@ import {
   getTrackAttributeOverrides, saveTrackAttributeOverride,
 } from './playlist.js';
 import { openTrackEditor, recordVideoIdHistory } from './track-edit.js';
+import { confirmDialog } from './dialogs.js';
 
 // ── Rendering thresholds ──────────────────────────────────────────────────────
 // Below FULL_RENDER_THRESHOLD (post-filter count) every matching item gets a DOM node.
@@ -66,6 +68,8 @@ let activeFilter = '';    // current filter string for the active playlist
 let activeYearFilter = new Set(); // selected years; empty = show all
 let _selectedIds = new Set();    // videoIds of checked tracks
 let _hideUnselected = false;     // when true, only selected tracks are shown
+let _sortAlphabetically = false; // per-playlist display order toggle
+let _toastTimer = null;
 
 // Scan state (separate from normal playback)
 let _scanActive = false;
@@ -97,10 +101,8 @@ const yearFilterBtnEl    = document.getElementById('year-filter-btn');
 const yearFilterDropEl   = document.getElementById('year-filter-dropdown');
 const selectBtnEl        = document.getElementById('select-filter-btn');
 const selectDropEl       = document.getElementById('select-dropdown');
-const confirmOverlayEl   = document.getElementById('confirm-overlay');
-const confirmMessageEl   = document.getElementById('confirm-message');
-const confirmOkEl        = document.getElementById('confirm-ok');
-const confirmCancelEl    = document.getElementById('confirm-cancel');
+const selectAddTargetsEl = document.getElementById('select-add-targets');
+const toastEl            = document.getElementById('toast');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function escapeHtml(s) {
@@ -484,7 +486,9 @@ function rebuildAllPlaylists() {
   allPlaylists = [...remotePlaylistMeta.map(p => ({
     ...p,
     title: getPlaylistNameOverride(p.url) ?? p.title,
-  })), ...customPls];
+  })), ...customPls].sort((a, b) =>
+    String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base', numeric: true })
+  );
 }
 
 async function switchPlaylist(url, restoreResume = false, deepLinkTarget = null) {
@@ -567,6 +571,7 @@ async function switchPlaylist(url, restoreResume = false, deepLinkTarget = null)
   filterClearBtn.hidden = !activeFilter;
   activeYearFilter = new Set();
   _selectedIds = new Set(plState.selected ?? []);
+  _sortAlphabetically = !!plState.sortAlpha;
   _populateYearFilter();
   _syncSelectBtn();
 
@@ -688,7 +693,7 @@ async function loadPlaylist() {
 
   initSettings({
     onHideRestrictedChange: () => renderTrackList(),
-    onPlaylistsChange:      () => { rebuildAllPlaylists(); renderPickerDropdown(); },
+    onPlaylistsChange:      () => { rebuildAllPlaylists(); renderPickerDropdown(); _syncDropdownActions(); },
     getAllPlaylists:        () => allPlaylists,
     onOpen:                closePicker,
     startScan:             (onProgress) => scanAllTracks(onProgress),
@@ -836,28 +841,115 @@ function _toggleSelect(videoId) {
 
 function _syncSelectBtn() {
   selectBtnEl.classList.toggle('active', _selectedIds.size > 0);
+  _syncDropdownActions();
 }
 
-function _confirm(message) {
-  return new Promise(resolve => {
-    confirmMessageEl.textContent = message;
-    confirmOverlayEl.hidden = false;
-    const onOk = () => { cleanup(); resolve(true); };
-    const onCancel = () => { cleanup(); resolve(false); };
-    function cleanup() {
-      confirmOverlayEl.hidden = true;
-      confirmOkEl.removeEventListener('click', onOk);
-      confirmCancelEl.removeEventListener('click', onCancel);
+function _showToast(message) {
+  if (!toastEl) return;
+  toastEl.textContent = String(message);
+  toastEl.hidden = false;
+  if (_toastTimer) clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => {
+    toastEl.hidden = true;
+    _toastTimer = null;
+  }, 1800);
+}
+
+function _activePlaylistEntry() {
+  return allPlaylists.find(p => p.url === activePlaylistUrl) ?? null;
+}
+
+function _isActiveCustomPlaylist() {
+  return !!_activePlaylistEntry()?.isCustom;
+}
+
+function _eligibleAddTargets() {
+  return allPlaylists
+    .filter(p => p.isCustom && p.url !== activePlaylistUrl)
+    .sort((a, b) => String(a.title || '').localeCompare(String(b.title || ''), undefined, { sensitivity: 'base', numeric: true }));
+}
+
+function _closeAddTargetMenu() {
+  if (!selectAddTargetsEl) return;
+  selectAddTargetsEl.hidden = true;
+  selectAddTargetsEl.innerHTML = '';
+}
+
+function _syncDropdownActions() {
+  const removeOpt = selectDropEl.querySelector('[data-action="remove"]');
+  const addOpt = selectDropEl.querySelector('[data-action="add-selected"]');
+  if (removeOpt) {
+    removeOpt.classList.toggle('select-option-disabled', !_isActiveCustomPlaylist());
+  }
+  if (addOpt) {
+    addOpt.classList.toggle('select-option-disabled', _selectedIds.size === 0);
+  }
+}
+
+function _focusSubOption(current, direction) {
+  const opts = [...selectAddTargetsEl.querySelectorAll('.select-sub-option')];
+  if (!opts.length) return;
+  const idx = opts.indexOf(current);
+  if (idx === -1) {
+    opts[0].focus();
+    return;
+  }
+  const next = (idx + direction + opts.length) % opts.length;
+  opts[next].focus();
+}
+
+function _collectSelectedTracks() {
+  return items.filter(it => it.videoId && _selectedIds.has(it.videoId));
+}
+
+function _addSelectedToCustomPlaylist(targetId) {
+  const selectedTracks = _collectSelectedTracks();
+  if (!selectedTracks.length) {
+    _showToast('No selected tracks to add.');
+    return;
+  }
+  const added = appendTracksToCustomPlaylist(targetId, selectedTracks);
+  rebuildAllPlaylists();
+  renderPickerDropdown();
+  _syncDropdownActions();
+  _showToast(added > 0 ? `Added ${added} track${added !== 1 ? 's' : ''}.` : 'All selected tracks already existed.');
+}
+
+function _openAddTargetMenu() {
+  if (!selectAddTargetsEl) return;
+  const targets = _eligibleAddTargets();
+  selectAddTargetsEl.innerHTML = '';
+  const createEl = document.createElement('div');
+  createEl.className = 'select-sub-option select-sub-option-create';
+  createEl.tabIndex = 0;
+  createEl.dataset.create = '1';
+  createEl.textContent = '+ Create new custom playlist';
+  selectAddTargetsEl.appendChild(createEl);
+
+  if (!targets.length) {
+    const empty = document.createElement('div');
+    empty.className = 'select-sub-empty';
+    empty.textContent = 'No other custom playlists yet.';
+    selectAddTargetsEl.appendChild(empty);
+  } else {
+    for (const target of targets) {
+      const opt = document.createElement('div');
+      opt.className = 'select-sub-option';
+      opt.tabIndex = 0;
+      opt.dataset.targetId = target.id;
+      opt.textContent = target.title;
+      selectAddTargetsEl.appendChild(opt);
     }
-    confirmOkEl.addEventListener('click', onOk);
-    confirmCancelEl.addEventListener('click', onCancel);
-  });
+  }
+
+  selectAddTargetsEl.hidden = false;
+  createEl.focus();
 }
 
 async function _clearSelection() {
   if (!_selectedIds.size) return;
   const n = _selectedIds.size;
-  const ok = await _confirm(`Clear ${n} selected track${n !== 1 ? 's' : ''}?`);
+  const ok = await confirmDialog(`Clear ${n} selected track${n !== 1 ? 's' : ''}?`);
   if (!ok) return;
   _selectedIds.clear();
   _saveSelection();
@@ -906,8 +998,12 @@ function _copyPlayerLink() {
 
 async function _removeSelected() {
   if (!_selectedIds.size) return;
+  if (!_isActiveCustomPlaylist()) {
+    _showToast('Tracks can only be removed in custom playlists.');
+    return;
+  }
   const n = _selectedIds.size;
-  const ok = await _confirm(`Permanently remove ${n} selected track${n !== 1 ? 's' : ''}?`);
+  const ok = await confirmDialog(`Permanently remove ${n} selected track${n !== 1 ? 's' : ''}?`);
   if (!ok) return;
 
   // Persist removed videoIds in playlist state
@@ -1006,23 +1102,53 @@ function _syncDropdownToggles() {
     ?.classList.toggle('select-option-on', isDisableRestricted());
   selectDropEl.querySelector('[data-action="toggle-stop-at-unplayable"]')
     ?.classList.toggle('select-option-on', isStopAtUnplayable());
+  selectDropEl.querySelector('[data-action="toggle-sort-alpha"]')
+    ?.classList.toggle('select-option-on', _sortAlphabetically);
+  _syncDropdownActions();
 }
 
 selectBtnEl.addEventListener('click', (e) => {
   e.stopPropagation();
   yearFilterDropEl.hidden = true;
   selectDropEl.hidden = !selectDropEl.hidden;
-  if (!selectDropEl.hidden) _syncDropdownToggles();
+  if (!selectDropEl.hidden) {
+    _syncDropdownToggles();
+  } else {
+    _closeAddTargetMenu();
+  }
 });
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('#select-filter')) selectDropEl.hidden = true;
+  if (!e.target.closest('#select-filter')) {
+    selectDropEl.hidden = true;
+    _closeAddTargetMenu();
+  }
 });
 selectDropEl.addEventListener('click', async (e) => {
+  const subOpt = e.target.closest('.select-sub-option');
+  if (subOpt) {
+    if (subOpt.dataset.create === '1') {
+      const created = addCustomPlaylist({ title: 'New custom playlist', items: [] });
+      _addSelectedToCustomPlaylist(created.id);
+      _closeAddTargetMenu();
+      return;
+    }
+    const targetId = subOpt.dataset.targetId;
+    if (targetId) {
+      _addSelectedToCustomPlaylist(targetId);
+      _closeAddTargetMenu();
+    }
+    return;
+  }
+
   const opt = e.target.closest('.select-option');
   if (!opt) return;
+  if (opt.classList.contains('select-option-disabled')) return;
   const action = opt.dataset.action;
   const isToggle = action === 'expose-selected' || action.startsWith('toggle-');
+  const isSubmenuAction = action === 'add-selected';
   if (!isToggle) selectDropEl.hidden = true;
+  if (isSubmenuAction) selectDropEl.hidden = false;
+  if (!isSubmenuAction) _closeAddTargetMenu();
   if (action === 'clear')                     await _clearSelection();
   if (action === 'invert')                    _invertSelection();
   if (action === 'select-enabled')            _selectByRestricted(false);
@@ -1031,11 +1157,44 @@ selectDropEl.addEventListener('click', async (e) => {
   if (action === 'copy-link')                 _copyPlayerLink();
   if (action === 'expose-selected')           { _hideUnselected = !_hideUnselected; renderTrackList(); }
   if (action === 'remove')                    await _removeSelected();
+  if (action === 'add-selected') {
+    if (selectAddTargetsEl.hidden) _openAddTargetMenu();
+    else _closeAddTargetMenu();
+  }
   if (action === 'toggle-hide-restricted')    setHideRestricted(!isHideRestricted());
   if (action === 'toggle-disable-restricted') setDisableRestricted(!isDisableRestricted());
   if (action === 'toggle-stop-at-unplayable') setStopAtUnplayable(!isStopAtUnplayable());
+  if (action === 'toggle-sort-alpha') {
+    _sortAlphabetically = !_sortAlphabetically;
+    if (activePlaylistUrl) savePlaylistState(activePlaylistUrl, { sortAlpha: _sortAlphabetically });
+    renderTrackList();
+    if (currentIndex >= 0) syncActiveTrack(0);
+  }
   if (isToggle) _syncDropdownToggles();
 });
+
+if (selectAddTargetsEl) {
+  selectAddTargetsEl.addEventListener('keydown', (e) => {
+    const target = e.target.closest('.select-sub-option');
+    if (!target) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      _focusSubOption(target, 1);
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      _focusSubOption(target, -1);
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      target.click();
+    }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      _closeAddTargetMenu();
+    }
+  });
+}
 
 function matchesFilter(item) {
   if (activeYearFilter.size > 0) {
@@ -1060,6 +1219,17 @@ function _buildVisibleItems() {
     displayNum++;
     result.push({ item, idx, displayNum });
   });
+
+  if (_sortAlphabetically) {
+    result.sort((a, b) => {
+      const aTitle = String(a.item?.title || a.item?.videoId || '');
+      const bTitle = String(b.item?.title || b.item?.videoId || '');
+      const cmp = aTitle.localeCompare(bTitle, undefined, { sensitivity: 'base', numeric: true });
+      return cmp || (a.idx - b.idx);
+    });
+    result.forEach((entry, i) => { entry.displayNum = i + 1; });
+  }
+
   return result;
 }
 

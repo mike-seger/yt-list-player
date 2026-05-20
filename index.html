@@ -34,11 +34,14 @@
           <div class="select-option" data-action="copy-tsv">Copy selection as TSV</div>
           <div class="select-option" data-action="copy-link">Copy player link</div>
           <div class="select-option select-option-danger" data-action="remove">Remove selected tracks</div>
+            <div class="select-option" data-action="add-selected">Add selected tracks</div>
+            <div id="select-add-targets" hidden></div>
           <div class="select-separator"></div>
           <div class="select-option select-option-toggle" data-action="expose-selected">Expose selected tracks</div>
           <div class="select-option select-option-toggle" data-action="toggle-hide-restricted">Hide restricted tracks</div>
           <div class="select-option select-option-toggle" data-action="toggle-disable-restricted">Disable restricted tracks</div>
           <div class="select-option select-option-toggle" data-action="toggle-stop-at-unplayable">Stop at unplayable track</div>
+            <div class="select-option select-option-toggle" data-action="toggle-sort-alpha">Sort tracks alphabetically</div>
         </div>
       </div>
       <div id="filter-input-wrap">
@@ -60,7 +63,10 @@
       <div class="settings-body">
 
         <section class="settings-section">
-          <div class="settings-section-title">Playlists</div>
+          <div class="settings-section-title-row">
+            <div class="settings-section-title">Playlists</div>
+            <button id="settings-add-empty" class="settings-icon-btn" title="Add empty custom playlist">&#8853;</button>
+          </div>
           <div id="settings-playlist-list"></div>
           <label class="drop-zone" id="settings-drop-zone">
             <input type="file" id="settings-file-input" accept=".json,.tsv,.csv">
@@ -103,6 +109,8 @@
         </div>
       </div>
     </div>
+
+    <div id="toast" hidden aria-live="polite"></div>
   </aside>
 
   <main id="main">

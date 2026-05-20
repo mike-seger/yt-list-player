@@ -115,7 +115,7 @@ LocalStorage keys used by app runtime:
 
 - `yt-pl-player.resume.v1`: global `{ playlistUrl }`
 - `yt-pl-player.pl-state.v1`: per-playlist state map
-  - includes `index`, `positionSec`, `filter`, `selected`, `removed`
+  - includes `index`, `positionSec`, `filter`, `selected`, `removed`, `sortAlpha`
   - plus `restricted`, `videoIdOverrides`, `trackOverrides`
 - `yt-pl-player.settings.v1`: settings
   - `hideRestricted`, `disableRestricted`, `stopAtUnplayable`, `scanConsecFailThreshold`, `hiddenPlaylists`, `nameOverrides`
@@ -135,8 +135,10 @@ IndexedDB:
   - `pl` playlist URL (or custom id mapping)
   - `v` target videoId
   - `t` fallback title
-- Selection actions include clear/invert/select enabled/select disabled/copy TSV/copy player link/remove selected.
-- Removing selected tracks persists removed videoIds in per-playlist state.
+- Selection actions include clear/invert/select enabled/select disabled/copy TSV/copy player link/remove selected/add selected.
+- Removing selected tracks is only allowed on custom playlists and persists removed videoIds in per-playlist state.
+- Add selected tracks appends to another custom playlist, skipping duplicate videoIds silently.
+- Selection menu includes a per-playlist `Sort tracks alphabetically` toggle.
 - Track edit UX:
   - Double-click or `E` on focused track opens editor.
   - `Cmd/Ctrl+Z` supports undo of recent videoId overrides (stack size 10).
@@ -157,6 +159,8 @@ IndexedDB:
 - Restricted behavior is controlled by two toggles:
   - Hide restricted from list (`hideRestricted`)
   - Disable click/play on restricted (`disableRestricted`)
+- Settings playlists list is alphabetically sorted (case-insensitive), capped to 4 visible rows before internal scroll.
+- Settings supports creating empty custom playlists from a plus button; deleting custom playlists requires confirmation.
 
 ## Scripts Folder Purpose
 

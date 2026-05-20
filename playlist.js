@@ -227,6 +227,35 @@ export function renameCustomPlaylist(id, newTitle) {
   _persistPut(pl);
 }
 
+export function appendTracksToCustomPlaylist(id, tracks) {
+  const pl = _customPlaylists.find(p => p.id === id);
+  if (!pl || !Array.isArray(tracks) || !tracks.length) return 0;
+
+  const existingIds = new Set((pl.items ?? []).map(it => String(it.videoId || '')).filter(Boolean));
+  let added = 0;
+
+  for (const track of tracks) {
+    const videoId = String(track?.videoId || '');
+    if (!videoId || existingIds.has(videoId)) continue;
+    existingIds.add(videoId);
+
+    const item = {
+      videoId,
+      title: track.userTitle || track.title || videoId,
+    };
+    if (track.restricted === true) item.restricted = true;
+    else if (track.restricted === false) item.restricted = false;
+    if (track.year != null) item.year = track.year;
+
+    if (!Array.isArray(pl.items)) pl.items = [];
+    pl.items.push(item);
+    added++;
+  }
+
+  if (added > 0) _persistPut(pl);
+  return added;
+}
+
 // ── Parsing ───────────────────────────────────────────────────────────────────
 function _parseJson(text) {
   const data = JSON.parse(text);
