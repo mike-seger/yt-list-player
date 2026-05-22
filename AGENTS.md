@@ -5,8 +5,8 @@ If details here conflict with README or older notes, trust this file and current
 
 ## Agent Quick Start (30s)
 
-1. Read this file first, then skim `player.js`, `settings.js`, `playlist.js`, and `track-edit.js`.
-2. Serve over HTTP (`python3 -m http.server 8080`) and verify basic playback before editing behavior.
+1. Read this file first, then skim `web/player.js`, `web/settings.js`, `web/playlist.js`, and `web/track-edit.js`.
+2. Serve `web/` over HTTP (`cd web && python3 -m http.server 8080`) and verify basic playback before editing behavior.
 3. Preserve storage schema and tri-state `restricted` semantics unless explicitly changing data model.
 4. Keep edits minimal in `player.js`; many features share state and rendering assumptions.
 5. If behavior or persistence changes, update this file in the same change.
@@ -15,17 +15,27 @@ If details here conflict with README or older notes, trust this file and current
 
 - App type: static web app (no bundler, no npm runtime required)
 - Stack: HTML + CSS + ES module JavaScript
-- Entry page: `index.html`
-- Main runtime module: `player.js`
-- Playlist/state modules: `playlist.js`, `settings.js`, `track-edit.js`
-- Data folder: `playlists/`
-- Utility/data-prep scripts: `scripts/`
+- Entry page: `web/index.html`
+- Main runtime module: `web/player.js`
+- Playlist/state modules: `web/playlist.js`, `web/settings.js`, `web/track-edit.js`
+- Data folder: `web/playlists/`
+- Utility/data-prep scripts: `web/scripts/`
+- Android shell: `mobile/android/`
+- iOS placeholder: `mobile/ios/`
+
+Android note:
+
+- `mobile/android` keeps the WebView-hosted web app as primary UI/runtime.
+- An optional native playback activity (`NativeYouTubePlayerActivity`) is integrated using `android-youtube-player` and can be launched via Android JS bridge.
+- Native activity initializes player with iframe controls disabled and renders app-owned controls (play/pause + seekbar).
+- On Android, play actions default to launching the native player when bridge support is available.
 
 ## Run And Verify
 
 Serve from HTTP (YouTube IFrame API does not work from file://):
 
 ```bash
+cd web
 python3 -m http.server 8080
 # or
 npx serve .
@@ -74,6 +84,8 @@ Quick smoke test after changes:
 - Export logic: downloads playlist as ZIP (JSON + TSV) using JSZip CDN, with JSON fallback.
 
 ### `track-edit.js`
+
+All files above are under the `web/` directory.
 
 - Lazy-built modal for per-track edits.
 - Edits videoId, title, year.

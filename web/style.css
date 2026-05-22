@@ -874,6 +874,16 @@ html, body {
 .ctrl-btn:hover { background: var(--hover-bg); border-color: #444; }
 .ctrl-btn:active { background: #2a2a2a; }
 
+#btn-native-player {
+    border-color: #2a5f96;
+    color: #b8dcff;
+}
+
+#btn-native-player:hover {
+    border-color: #3b79b8;
+    background: rgba(35, 80, 128, 0.2);
+}
+
 /* loading / error */
 #status-overlay {
     position: absolute;
@@ -895,6 +905,8 @@ html, body {
     #sidebar { width: 100%; max-width: none; height: 40vh; border-right: none; border-bottom: 1px solid var(--border); }
     #player-area { height: 60vw; flex: none; }
     #main { flex: 1; }
+    #now-playing-bar { flex-wrap: wrap; gap: 10px; }
+    #now-playing-title { flex-basis: 100%; }
 }
 
 /* ── Track editor overlay ── */

@@ -89,7 +89,7 @@ const _cb = { onHideRestrictedChange: null, onPlaylistsChange: null, onOpen: nul
 let _getAllPlaylists = null;
 
 // ── DOM elements (set after DOMContentLoaded via initSettings) ────────────────
-let _overlayEl, _listEl, _failedCountEl, _scanBtn, _scanRestrictedBtn, _clearRestrictedBtn, _scanConsecFailInput, _addEmptyBtn;
+let _overlayEl, _listEl, _failedCountEl, _scanBtn, _scanRestrictedBtn, _clearRestrictedBtn, _scanConsecFailInput, _addEmptyBtn, _copyPlaybackReportBtn;
 
 export function initSettings({ onHideRestrictedChange, onPlaylistsChange, getAllPlaylists, onOpen, startScan, cancelScan, startScanRestricted, clearRestricted, getUnknownCount, onScanStatus }) {
   _cb.onHideRestrictedChange = onHideRestrictedChange;
@@ -111,6 +111,7 @@ export function initSettings({ onHideRestrictedChange, onPlaylistsChange, getAll
   _clearRestrictedBtn  = document.getElementById('settings-clear-restricted-btn');
   _scanConsecFailInput = document.getElementById('setting-scan-consec-fail');
   _addEmptyBtn         = document.getElementById('settings-add-empty');
+  _copyPlaybackReportBtn = document.getElementById('settings-copy-playback-report');
 
   _addEmptyBtn.addEventListener('click', () => {
     const created = addCustomPlaylist({ title: 'New custom playlist', items: [] });
@@ -154,6 +155,31 @@ export function initSettings({ onHideRestrictedChange, onPlaylistsChange, getAll
     }
     copyBtn.textContent = 'Copied!';
     setTimeout(() => { copyBtn.textContent = 'Copy to clipboard'; }, 2000);
+  });
+
+  _copyPlaybackReportBtn.addEventListener('click', async () => {
+    const report = _getMobilePlaybackReport();
+
+    try {
+      if (window.AndroidBridge && typeof window.AndroidBridge.showBackgroundPlaybackCheck === 'function') {
+        window.AndroidBridge.showBackgroundPlaybackCheck();
+      }
+    } catch {
+      // Ignore if native bridge fails to show dialog.
+    }
+
+    try {
+      await navigator.clipboard.writeText(report);
+    } catch {
+      const ta = Object.assign(document.createElement('textarea'), { value: report });
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+    }
+
+    _copyPlaybackReportBtn.textContent = 'Copied!';
+    setTimeout(() => { _copyPlaybackReportBtn.textContent = 'Copy playback report'; }, 2000);
   });
 
   // Updates the status element and notifies the player (live=true while actively scanning).
@@ -377,4 +403,22 @@ async function _handleFileUpload(file) {
 
 function _esc(s) {
   return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function _getMobilePlaybackReport() {
+  try {
+    if (window.AndroidBridge && typeof window.AndroidBridge.getBackgroundPlaybackCheckReport === 'function') {
+      const report = window.AndroidBridge.getBackgroundPlaybackCheckReport();
+      if (typeof report === 'string' && report.trim()) return report;
+    }
+  } catch {
+    // Ignore bridge failures and use fallback text.
+  }
+
+  return [
+    'YT List Player - Mobile Playback Report',
+    `Timestamp: ${new Date().toISOString()}`,
+    'Environment: Browser / Android bridge unavailable',
+    'Notes: Native Android playback capability report is only available inside the Android app shell.',
+  ].join('\n');
 }

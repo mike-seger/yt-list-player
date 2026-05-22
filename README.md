@@ -18,12 +18,17 @@ A lightweight, zero-dependency YouTube playlist player. No bundler, no npm — j
 
 ```
 minimal-yt-pl-player/
-├── index.html              # HTML shell
-├── player.js               # All player logic (ES module)
-├── style.css               # Styles
-└── playlists/
-    ├── playlists.json               # Array of playlist JSON paths to load (first entry used)
-    └── pl_*.json                # Playlist data files
+├── web/
+│   ├── index.html            # HTML shell
+│   ├── player.js             # All player logic (ES module)
+│   ├── style.css             # Styles
+│   ├── playlists/
+│   │   ├── playlists.json    # Array of playlist JSON paths to load
+│   │   └── pl_*.json         # Playlist data files
+│   └── scripts/              # Data prep scripts
+└── mobile/
+  ├── android/              # Native Android WebView shell
+  └── ios/                  # iOS placeholder for later implementation
 ```
 
 ## Playlist format
@@ -56,9 +61,10 @@ Thumbnails are derived from `videoId` at runtime (`https://i.ytimg.com/vi/{video
 
 ## Usage
 
-Serve the `minimal-yt-pl-player/` directory from any HTTP server (the YouTube IFrame API requires a non-`file://` origin):
+Serve the `web/` directory from any HTTP server (the YouTube IFrame API requires a non-`file://` origin):
 
 ```sh
+cd web
 npx serve .
 # or
 python3 -m http.server 8080

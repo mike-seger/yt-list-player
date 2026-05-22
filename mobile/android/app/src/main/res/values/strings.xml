@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">YT List Player</string>
+    <string name="media_channel_name">Playback</string>
+    <string name="media_channel_desc">Playback controls on lock screen and notifications</string>
+</resources>

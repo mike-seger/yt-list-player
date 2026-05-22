@@ -93,6 +93,7 @@ const nowPlayingEl       = document.getElementById('now-playing-title');
 const statusOverlay      = document.getElementById('status-overlay');
 const btnPrev            = document.getElementById('btn-prev');
 const btnNext            = document.getElementById('btn-next');
+const btnNativePlayer    = document.getElementById('btn-native-player');
 const pickerEl           = document.getElementById('playlist-picker');
 const pickerDropdownEl   = document.getElementById('playlist-picker-dropdown');
 const filterInputEl      = document.getElementById('track-filter');
@@ -132,6 +133,143 @@ function ytWatch(videoId) {
   return `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}`;
 }
 
+function _sendMobilePlaybackState() {
+  try {
+    if (!window.AndroidBridge || typeof window.AndroidBridge.onPlaybackState !== 'function') return;
+    const item = items[currentIndex] ?? null;
+    const label = item ? (item.title || item.videoId || 'YT List Player') : 'YT List Player';
+    const parts = splitTitle(label);
+    const state = (ytReady && ytPlayer && typeof ytPlayer.getPlayerState === 'function')
+      ? ytPlayer.getPlayerState()
+      : -1;
+    const playing = state === YT.PlayerState.PLAYING;
+    const durationMs = (ytReady && ytPlayer && typeof ytPlayer.getDuration === 'function')
+      ? Math.max(0, Math.floor((ytPlayer.getDuration() || 0) * 1000))
+      : 0;
+    const positionMs = (ytReady && ytPlayer && typeof ytPlayer.getCurrentTime === 'function')
+      ? Math.max(0, Math.floor((ytPlayer.getCurrentTime() || 0) * 1000))
+      : 0;
+
+    window.AndroidBridge.onPlaybackState(JSON.stringify({
+      title: parts.song || parts.artist || label,
+      artist: parts.artist || 'YT List Player',
+      playing,
+      durationMs,
+      positionMs,
+      videoId: item?.videoId || '',
+    }));
+  } catch {
+    // No-op when host bridge is unavailable.
+  }
+}
+
+function _openCurrentTrackInNativePlayer({ autoplay = true } = {}) {
+  try {
+    if (!window.AndroidBridge || typeof window.AndroidBridge.openNativeYouTubePlayer !== 'function') {
+      _showToast('Native player is only available in the Android app shell.');
+      return false;
+    }
+    const item = items[currentIndex] ?? null;
+    const videoId = item?.videoId ? String(item.videoId) : '';
+    if (!videoId) {
+      _showToast('Pick a track first.');
+      return false;
+    }
+    const label = item ? (item.title || item.videoId || 'YT List Player') : 'YT List Player';
+    const parts = splitTitle(label);
+    const startSeconds = (ytReady && ytPlayer && typeof ytPlayer.getCurrentTime === 'function')
+      ? Math.max(0, Number(ytPlayer.getCurrentTime() || 0))
+      : 0;
+
+    window.AndroidBridge.openNativeYouTubePlayer(
+      videoId,
+      parts.song || parts.artist || label,
+      parts.artist || '',
+      startSeconds,
+      Boolean(autoplay),
+    );
+    _showToast('Opening native Android player...');
+    return true;
+  } catch {
+    _showToast('Failed to open native player.');
+    return false;
+  }
+}
+
+function _isNativePlayerAvailable() {
+  try {
+    if (!window.AndroidBridge || typeof window.AndroidBridge.openNativeYouTubePlayer !== 'function') {
+      return false;
+    }
+    if (typeof window.AndroidBridge.isNativeYouTubePlayerAvailable === 'function') {
+      return Boolean(window.AndroidBridge.isNativeYouTubePlayerAvailable());
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function _handleMobileHostCommand(cmd) {
+  const command = String(cmd || '').toLowerCase();
+  if (!ytReady || !ytPlayer) return;
+  if (command === 'toggle') {
+    const state = ytPlayer.getPlayerState();
+    if (state === YT.PlayerState.PLAYING) ytPlayer.pauseVideo();
+    else ytPlayer.playVideo();
+    return;
+  }
+  if (command === 'play') {
+    ytPlayer.playVideo();
+    return;
+  }
+  if (command === 'pause') {
+    ytPlayer.pauseVideo();
+    return;
+  }
+  if (command === 'next') {
+    const ni = _nextVisibleIdx(currentIndex, 1);
+    if (ni >= 0) playIndex(ni, 0, 1);
+    return;
+  }
+  if (command === 'prev') {
+    const ni = _nextVisibleIdx(currentIndex, -1);
+    if (ni >= 0) playIndex(ni, 0, -1);
+    return;
+  }
+  if (command === 'native') {
+    _openCurrentTrackInNativePlayer({ autoplay: true });
+  }
+}
+
+window.MobileHost = {
+  command(cmd) {
+    _handleMobileHostCommand(cmd);
+  },
+};
+
+function _bridgeLog(level, message) {
+  try {
+    if (window.AndroidBridge && typeof window.AndroidBridge.log === 'function') {
+      window.AndroidBridge.log(level, String(message ?? ''));
+    }
+  } catch {
+    // Ignore bridge logging failures.
+  }
+}
+
+window.addEventListener('error', (event) => {
+  const details = `${event.message || 'Unknown error'} @ ${event.filename || 'unknown'}:${event.lineno || 0}`;
+  _bridgeLog('error', details);
+});
+
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason instanceof Error
+    ? (event.reason.stack || event.reason.message)
+    : JSON.stringify(event.reason);
+  _bridgeLog('error', `Unhandled rejection: ${reason}`);
+});
+
 async function fetchJson(url) {
   const resp = await fetch(url, { cache: 'no-store' });
   if (!resp.ok) throw new Error(`HTTP ${resp.status} – ${url}`);
@@ -168,6 +306,7 @@ window.onYouTubeIframeAPIReady = function () {
           ytPlayer.loadVideoById({ videoId, startSeconds: positionSec });
         }
         startResumeSaveLoop();
+        _sendMobilePlaybackState();
       },
       onStateChange(e) {
         if (_scanActive && _scanResolveTrack) {
@@ -197,6 +336,7 @@ window.onYouTubeIframeAPIReady = function () {
           const nextIdx = _nextVisibleIdx(currentIndex, 1);
           if (nextIdx >= 0) playIndex(nextIdx, 0, 1);
         }
+        _sendMobilePlaybackState();
       },
       onError(e) {
         if (_scanActive && _scanResolveTrack) {
@@ -228,6 +368,7 @@ window.onYouTubeIframeAPIReady = function () {
           const nextIdx = _nextVisibleIdx(currentIndex, 1);
           if (nextIdx >= 0) playIndex(nextIdx, 0, 1);
         }, 1500);
+        _sendMobilePlaybackState();
       },
     },
   });
@@ -564,6 +705,7 @@ async function switchPlaylist(url, restoreResume = false, deepLinkTarget = null)
     ? `${playableCount} tracks · ${restrictedCount} restricted`
     : `${playableCount} tracks`;
   document.title = `${title} – YT Player`;
+  _sendMobilePlaybackState();
 
   // Restore per-playlist state
   activeFilter = plState.filter ?? '';
@@ -1526,11 +1668,17 @@ function playIndex(idx, positionSec = 0, dir = 0) {
 
   saveResume(currentIndex, 0);
 
+  if (_isNativePlayerAvailable()) {
+    _openCurrentTrackInNativePlayer({ autoplay: true });
+    return;
+  }
+
   if (ytReady && ytPlayer) {
     ytPlayer.loadVideoById({ videoId, startSeconds: positionSec });
   } else {
     pendingLoad = { videoId, positionSec };
   }
+  _sendMobilePlaybackState();
 }
 
 // ── Keyboard controls ─────────────────────────────────────────────────────────
@@ -1569,12 +1717,19 @@ document.addEventListener('keydown', (e) => {
       e.preventDefault();
       if (ytReady && ytPlayer) ytPlayer.seekTo(ytPlayer.getCurrentTime() + 10, true);
       break;
+    case 'n':
+    case 'N':
+      _openCurrentTrackInNativePlayer({ autoplay: true });
+      break;
   }
 });
 
 // ── Button controls ───────────────────────────────────────────────────────────
 btnPrev.addEventListener('click', () => { const ni = _nextVisibleIdx(currentIndex, -1); if (ni >= 0) playIndex(ni, 0, -1); });
 btnNext.addEventListener('click', () => { const ni = _nextVisibleIdx(currentIndex,  1); if (ni >= 0) playIndex(ni, 0,  1); });
+btnNativePlayer?.addEventListener('click', () => {
+  _openCurrentTrackInNativePlayer({ autoplay: true });
+});
 
 // ── Swipe gestures ────────────────────────────────────────────────────────────
 const SWIPE_MIN_X = 40;
